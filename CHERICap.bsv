@@ -1,6 +1,7 @@
 /*-
  * Copyright (c) 2018-2019 Alexandre Joannou
  * Copyright (c) 2019 Peter Rugg
+ * Copyright (c) 2021 Microsoft
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -86,8 +87,8 @@ typedef struct
   Bit#(n) mask;
 } SetBoundsReturn#(type t, numeric type n) deriving (Bits, Eq, FShow);
 
-typeclass CHERICap#(type t, numeric type ot, numeric type flg, numeric type n, numeric type mem_sz, numeric type maskable_bits)
-  dependencies (t determines (ot, flg, n, mem_sz, maskable_bits));
+typeclass CHERICap#(type t, numeric type ot, numeric type flg, numeric type n, numeric type mem_sz, numeric type maskable_bits, numeric type version_bits)
+  dependencies (t determines (ot, flg, n, mem_sz, maskable_bits, version_bits));
 
   // Return whether the Capability is valid
   function Bool isValidCap (t cap);
@@ -117,6 +118,17 @@ typeclass CHERICap#(type t, numeric type ot, numeric type flg, numeric type n, n
   // Manipulate the kind of the capability, i.e. whether it is sealed, sentry, unsealed, ...
   function Kind#(ot) getKind (t cap);
   function t setKind (t cap, Kind#(ot) kind);
+
+  // Manipulate the version of a capability, note that version 0 is reserved for 
+  // UNVERSIONED (XXX should  make a union type for this?)
+  function Bit#(version_bits) getVersion(t cap);
+  function t setVersion(t cap, Bit#(version_bits) v);
+  // Returns whether the capability has a non-zero version. Unversioned caps
+  // have extra privilege: they can set version tags in memory and can be
+  // 'downgraded' to versioned caps by setting a non-zero version.
+  function Bool isVersioned(t cap);
+    return getVersion(cap) != 0;
+  endfunction
 
   // Get the address pointed to by the capability
   function Bit#(n) getAddr (t cap);
@@ -204,9 +216,10 @@ typeclass CHERICap#(type t, numeric type ot, numeric type flg, numeric type n, n
 
 endtypeclass
 
-function Fmt showCHERICap(t cap) provisos (CHERICap#(t, ot, flg, n, mem_sz, maskable_bits));
+function Fmt showCHERICap(t cap) provisos (CHERICap#(t, ot, flg, n, mem_sz, maskable_bits, version_bits));
   return $format( "Valid: 0x%0x", isValidCap(cap)) +
          $format(" Perms: 0x%0x", getPerms(cap)) +
+         $format(" Version: 0x%0x", getVersion(cap)) +
          $format(" Kind: ", fshow(getKind(cap))) +
          $format(" Addr: 0x%0x", getAddr(cap)) +
          $format(" Base: 0x%0x", getBase(cap)) +

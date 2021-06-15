@@ -3,6 +3,7 @@
  * Copyright (c) 2017-2021 Alexandre Joannou
  * Copyright (c) 2019 Peter Rugg
  * Copyright (c) 2021 Dapeng Gao
+ * Copyright (c) 2021 Microsoft
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -42,6 +43,7 @@ export CapPipe;
 
 export CapFat;
 export MW;
+export VersionW;
 export OTypeW;
 export FlagsW;
 export Perms;
@@ -79,6 +81,7 @@ typedef struct {
 typedef 0  UPermW;
 typedef 8  MW;
 typedef 6  ExpW;
+typedef 0  VersionW;
 typedef 4  OTypeW;
 typedef `FLAGSW FlagsW;
 typedef 32 CapAddrW;
@@ -87,7 +90,13 @@ typedef 64 CapW;
 typedef 4   UPermW;
 typedef 14  MW;
 typedef 6   ExpW;
+`ifdef CAP_VERSION
+typedef 4   VersionW;
+typedef 14  OTypeW;
+`else
+typedef 0   VersionW;
 typedef 18  OTypeW;
+`endif
 typedef `FLAGSW FlagsW;
 typedef 64  CapAddrW;
 typedef 128 CapW;
@@ -132,16 +141,19 @@ typedef struct {
 } Perms deriving(Bits, Eq, FShow);
 typedef SizeOf#(Perms) PermsW;
 // The reserved bits
-typedef TSub#(CapW, TAdd#( CapAddrW
-                         , TAdd#( OTypeW
-                                , TAdd#( CBoundsW
-                                       , TAdd#(PermsW, FlagsW))))) ResW;
+typedef TSub#(CapW, 
+              TAdd#(CapAddrW,
+              TAdd#(CBoundsW, 
+              TAdd#(OTypeW,
+              TAdd#(VersionW,
+              TAdd#(PermsW, FlagsW)))))) ResW;
 // The full capability structure, including the "tag" bit.
 typedef struct {
   Bool         isCapability;
   Perms        perms;
   Bit#(ResW)   reserved;
   Bit#(FlagsW) flags;
+  Bit#(VersionW) version;
   Bit#(OTypeW) otype;
   CBounds      bounds;
   CapAddr      address;
@@ -169,6 +181,8 @@ Bit#(OTypeW) otype_sentry   = -2;
 Bit#(OTypeW) otype_res0     = -3;
 Bit#(OTypeW) otype_res1     = -4;
 
+Bit#(VersionW) unversioned = 0;
+
 // unpacked capability format
 typedef struct {
   Bool           isCapability;
@@ -177,6 +191,7 @@ typedef struct {
   Perms          perms;
   Bit#(FlagsW)   flags;
   Bit#(ResW)     reserved;
+  Bit#(VersionW) version;
   Bit#(OTypeW)   otype;
   Format         format;
   Bounds         bounds;
@@ -187,6 +202,7 @@ function Fmt showArchitectural(CapFat cap) =
   $format("valid:%b", cap.isCapability)
   + $format(" perms:0x%x", getPerms(cap))
   //+ $format(" flags:0x%x", getFlags(cap))
+  + $format(" version:0x%x", getVersion(cap))
   + $format(" kind:", fshow(getKind(cap)))
   + $format(" offset:0x%x", getOffsetFat(cap, getTempFields(cap)))
   + $format(" base:0x%x", getBotFat(cap, getTempFields(cap)))
@@ -198,6 +214,7 @@ instance FShow#(CapFat);
     $format("valid:%b", cap.isCapability)
     + $format(" perms:0x%x", getPerms(cap))
     //+ $format(" flags:0x%x", getFlags(cap))
+    // + $format(" version:0x%x", getVersion(cap))
     + $format(" reserved:0x%x", cap.reserved)
     + $format(" format:", fshow(cap.format))
     + $format(" bounds:", fshow(cap.bounds))
@@ -223,6 +240,7 @@ function CapFat unpackCap(Capability thin);
   fat.perms        = memCap.perms;
   fat.flags        = memCap.flags;
   fat.reserved     = memCap.reserved;
+  fat.version      = memCap.version;
   fat.otype        = memCap.otype;
   match {.f, .b}   = decBounds(memCap.bounds);
   fat.format       = f;
@@ -246,6 +264,7 @@ function Capability packCap(CapFat fat);
     , perms:        fat.perms
     , flags:        fat.flags
     , reserved:     fat.reserved
+    , version:      fat.version
     , otype:        fat.otype
     , bounds:       encBounds(fat.format,fat.bounds)
     , address:      fat.address };
@@ -686,6 +705,7 @@ instance DefaultValue #(CapFat);
     , perms       : unpack(~0)
     , flags       : 0
     , reserved    : 0
+    , version     : unversioned
     , otype       : otype_unsealed
     , format      : EmbeddedExp
     , bounds      : defaultValue
@@ -698,6 +718,7 @@ CapFat null_cap = CapFat {
   , perms       : unpack(0)
   , flags       : 0
   , reserved    : 0
+  , version     : unversioned
   , otype       : otype_unsealed
   , format      : EmbeddedExp
   , bounds      : defaultValue
@@ -847,7 +868,7 @@ typedef struct {
   TempFields tempFields;
 } CapPipe deriving (Bits);
 
-instance CHERICap #(CapMem, OTypeW, FlagsW, CapAddrW, CapW, TSub#(MW, 3));
+instance CHERICap #(CapMem, OTypeW, FlagsW, CapAddrW, CapW, TSub#(MW, 3), VersionW);
   function isValidCap (capMem);
     CapabilityInMemory cap = unpack(capMem);
     return cap.isCapability;
@@ -887,6 +908,8 @@ instance CHERICap #(CapMem, OTypeW, FlagsW, CapAddrW, CapW, TSub#(MW, 3));
   function setSoftPerms = error("setSoftPerms not implemented for CapMem");
   function getKind = error("getKind not implemented for CapMem");
   function setKind = error("setKind not implemented for CapMem");
+  function getVersion = error("getVersion not implemented for CapMem");
+  function setVersion = error("setVersion not implemented for CapMem");
   function getAddr(capMem);
     CapabilityInMemory cap = unpack(capMem);
     return cap.address;
@@ -929,6 +952,7 @@ instance FShow #(CapPipe);
                         "v: ", fshow(isValidCap(cap)),
                         " a: ", fshow(getAddr(cap)),
                         " o: ", fshow(getOffset(cap)),
+                        " vr: ", fshow(getVersion(cap)),
                         " b: ", fshow(getBase(cap)),
                         " t: ", fshow(getTop(cap)),
                         " sp: ", fshow(pack(getSoftPerms(cap))),
@@ -946,7 +970,7 @@ instance Eq #(CapReg);
 //  function Bool \/= (CapPipe x, CapPipe y);
 endinstance
 
-instance CHERICap #(CapReg, OTypeW, FlagsW, CapAddrW, CapW, TSub#(MW, 3));
+instance CHERICap #(CapReg, OTypeW, FlagsW, CapAddrW, CapW, TSub#(MW, 3), VersionW);
 
   function isValidCap (x) = x.isCapability;
 
@@ -997,6 +1021,13 @@ instance CHERICap #(CapReg, OTypeW, FlagsW, CapAddrW, CapW, TSub#(MW, 3));
 
   function setSoftPerms (cap, perms);
     cap.perms.soft = truncate(perms);
+    return cap;
+  endfunction
+
+  function getVersion (cap) = cap.version;
+
+  function setVersion (cap, v);
+    cap.version = v;
     return cap;
   endfunction
 
@@ -1067,7 +1098,7 @@ instance CHERICap #(CapReg, OTypeW, FlagsW, CapAddrW, CapW, TSub#(MW, 3));
 
 endinstance
 
-instance CHERICap #(CapPipe, OTypeW, FlagsW, CapAddrW, CapW, TSub#(MW, 3));
+instance CHERICap #(CapPipe, OTypeW, FlagsW, CapAddrW, CapW, TSub#(MW, 3), VersionW);
 
   //Functions supported by CapReg are just passed through
 
@@ -1087,6 +1118,12 @@ instance CHERICap #(CapPipe, OTypeW, FlagsW, CapAddrW, CapW, TSub#(MW, 3));
   function setSoftPerms (cap, perms) =
     CapPipe { capFat: setSoftPerms(cap.capFat, perms)
             , tempFields: cap.tempFields };
+  
+  function getVersion(cap) = getVersion(cap.capFat);
+  function setVersion(cap, v) =
+    CapPipe { capFat: setVersion(cap.capFat, v) 
+            , tempFields: cap.tempFields };
+
   function getKind (cap) = getKind(cap.capFat);
   function setKind (cap, kind) =
     CapPipe { capFat:setKind(cap.capFat,kind)
