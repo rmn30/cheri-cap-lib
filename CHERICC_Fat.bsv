@@ -44,6 +44,7 @@ export CapPipe;
 export CapFat;
 export MW;
 export VersionW;
+export CapVersion;
 export OTypeW;
 export FlagsW;
 export Perms;
@@ -181,7 +182,8 @@ Bit#(OTypeW) otype_sentry   = -2;
 Bit#(OTypeW) otype_res0     = -3;
 Bit#(OTypeW) otype_res1     = -4;
 
-Bit#(VersionW) unversioned = 0;
+typedef Bit#(VersionW) CapVersion;
+CapVersion unversioned = 0;
 
 // unpacked capability format
 typedef struct {
@@ -191,7 +193,7 @@ typedef struct {
   Perms          perms;
   Bit#(FlagsW)   flags;
   Bit#(ResW)     reserved;
-  Bit#(VersionW) version;
+  CapVersion     version;
   Bit#(OTypeW)   otype;
   Format         format;
   Bounds         bounds;
